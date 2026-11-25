@@ -1,0 +1,93 @@
+# @package data
+# ===== 最终 33:12:7 划分版：与 treeins_rad8_gs03.yaml 逐字相同，唯一差别是
+#       forest_regions 指向 PUMPKIN_FINAL =====
+#
+# 用途：**任何需要“按数据集自己的 split 逻辑读新划分”的任务**——
+#   经典聚类基线（在 val 上扫超参、在 test 上评）、freeze_samples.py。
+#   网络评测不用本文件：eval 直接 `data.fold=[7 个绝对路径]` 覆盖 test。
+#
+# 为什么需要它：数据集在预处理时**按文件名后缀**划分 split
+#   (`segmentation/treeins.py`: area_name 以 `_val.ply` / `_test.ply` 结尾)。
+#   云端 raw 目录的后缀还是旧划分，直接用会静默读成旧 split。
+#   `tools/make_final_split_layout.py` 在 `raw/PUMPKIN_FINAL/` 下建好符号链接树，
+#   本文件只把 forest_regions 指向那个子目录 ⇒ raw_file_names 只扫它，
+#   不会把原目录一起扫进来（forest_regions=None 时会递归 glob 全部 .ply）。
+#
+# processed 缓存会落到**新目录** `processed_0.3_['PUMPKIN_FINAL']`，旧缓存不动。
+#
+# 生成命令：
+#   python tools/make_final_split_layout.py            # 12 val + 7 test + 1 dummy train
+#   python tools/make_final_split_layout.py --splits all   # 全 52 个（仅重训才需要）
+#
+# ———————————— 以下与 treeins_rad8_gs03.yaml 逐字相同 ————————————
+defaults:
+  - panoptic/default
+
+task: panoptic
+class: treeins.TreeinsFusedDataset
+dataroot: data
+# ★ 唯一改动：只扫 PUMPKIN_FINAL 子目录
+forest_regions: ['PUMPKIN_FINAL']
+fold: []
+first_subsampling: 0.3
+radius: 8
+grid_size: ${data.first_subsampling}
+keep_instance: True
+use_category: False
+sampling_format: 'cylinder'
+mode: last
+pre_collate_transform:
+  - transform: SaveOriginalPosId
+  - transform: GridSampling3D
+    params:
+      size: ${data.first_subsampling}
+      mode: ${data.mode}
+train_transforms:
+  - transform: RandomNoise
+    params:
+      sigma: 0.01
+  - transform: RandomRotate
+    params:
+      degrees: 180
+      axis: 2
+  - transform: RandomScaleAnisotropic
+    params:
+      scales: [0.9, 1.1]
+  - transform: RandomSymmetry
+    params:
+      axis: [True, False, False]
+  - transform: XYZRelaFeature
+    params:
+      add_x: True
+      add_y: True
+      add_z: True
+  - transform: XYZFeature
+    params:
+      add_x: False
+      add_y: False
+      add_z: True
+  - transform: Center
+  - transform: GridSampling3D
+    params:
+      size: ${data.first_subsampling}
+      quantize_coords: True
+      mode: ${data.mode}
+  - transform: ShiftVoxels
+test_transform:
+  - transform: XYZRelaFeature
+    params:
+      add_x: True
+      add_y: True
+      add_z: True
+  - transform: XYZFeature
+    params:
+      add_x: False
+      add_y: False
+      add_z: True
+  - transform: Center
+  - transform: GridSampling3D
+    params:
+      size: ${data.first_subsampling}
+      quantize_coords: True
+      mode: ${data.mode}
+val_transform: ${data.test_transform}

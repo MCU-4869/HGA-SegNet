@@ -1,0 +1,24 @@
+# @package _global_
+model:
+  architecture: KPConv
+  backbone:
+    name: KPConv
+    in_channels: 4
+    num_kernel_points: 15
+    radius: 0.1
+    sigma: 1.0
+    deformable: false
+    modulated: false
+    dimension: 3
+    conv_op: "sparse"
+  segmentation_head:
+    name: KPConvSegHead
+    in_channels: null
+    num_classes: 2
+  instance_head:
+    name: KPConvInstanceHead
+    in_channels: null
+    embedding_dim: 32
+    num_kernel_points: 15
+    radius: 0.1
+    sigma: 1.0

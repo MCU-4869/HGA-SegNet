@@ -1,0 +1,57 @@
+# @package training
+# ★★ 2³ 组合消融表 **全 8 行统一使用的训练配置**（用户 2026-09-25）。
+#
+# 逐字拷贝自 `treeins_hetero_s1_150.yaml`（= S1@150 的真实配方，见其 resume run 的
+# `.hydra/overrides.yaml`），**只改 wandb 的 notes/name 两处**，其余一个字符都不动。
+#
+# ★ 为什么需要这个文件：**S1/S0 用 base_lr=1e-3，而六个格子原来用的
+#   `treeins_acgo_150.yaml` 是 1e-4** ⇒ 同一张表里 LR 不同，机3 vs S1 就不只是
+#   "差一个模块"（和 `_freeze_for_ablation` 那个坑同一类：协议不一致会让整行作废）。
+#   ⇒ 统一到 **1e-3**（= S0/S1 的既有设定，也是唯一有已交付结果的设定）。
+#
+# 关键值（勿改）：epochs 150 / base_lr 1e-3 / batch_size 16 / num_workers 8 /
+#   Adam weight_decay 0 / grad_clip -1 / ExponentialLR gamma=0.9885（见 conf/lr_scheduler）
+# 起跑核对：`.hydra/config.yaml` 里 `epochs: 150` 且 `base_lr: 0.001`。
+epochs: 150
+num_workers: 8
+batch_size: 16
+shuffle: True
+cuda: 0
+precompute_multi_scale: False
+optim:
+  base_lr: 0.001
+  grad_clip: -1
+  optimizer:
+    class: Adam
+    params:
+      lr: ${training.optim.base_lr}
+      weight_decay: 0
+  lr_scheduler: ${lr_scheduler}
+  bn_scheduler:
+    bn_policy: "step_decay"
+    params:
+      bn_momentum: 0.1
+      bn_decay: 0.5
+      decay_step: 20
+      bn_clip: 1e-2
+weight_name: "latest"
+enable_cudnn: True
+checkpoint_dir: ""
+
+wandb:
+  # 2026-11-24: released with logging OFF so `python train.py` works without a
+  # wandb account (the old default logged into the author's own entity, which a
+  # fresh clone cannot write to). Turn it on with your own entity/project via
+  # `training.wandb.log=True training.wandb.entity=<you>`.
+  entity: "your-wandb-entity"
+  project: "pumpkin-hga-segnet"
+  log: False
+  notes: "treeins_ab_150"
+  name: "treeins_ab_150"
+  id:
+  public: True
+  config:
+    grid_size: ${data.grid_size}
+
+tensorboard:
+  log: False

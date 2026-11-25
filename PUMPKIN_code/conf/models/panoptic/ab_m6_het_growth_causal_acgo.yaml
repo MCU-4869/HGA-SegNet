@@ -1,0 +1,202 @@
+# @package models
+# ===== 组合式消融 2^3 因子 —— 机 6 = A=六视角异构 ON  |  B=生长+因果 ON  |  C=ACGO ON =====
+#
+# 三个创新点：A=六视角异构   B=生长特征+因果生长注意力   C=ACGO 优化算法
+# 起点 = **S0 baseline 的 val-max**，与其它所有格子同一个 checkpoint（8 行才可比）。
+#   outputs/s0_pure3d_gs03_150ep/...20260918_160510/PointGroup-PAPER.pt
+#   ⚠️ S2 是从 S1 的 val-max 两跳起步的，协议不同，它的数不能放进这张表。
+# 训练：training=**treeins_ab_150**（150 轮 / base_lr **1e-3** / batch16）
+#   ★ 2026-09-26 更正：本行原写 `treeins_acgo_150`（base_lr **1e-4**）—— 那是
+#     六个格子**早期**用的配置。`treeins_ab_150` 就是为统一 LR 而建的（见它的
+#     文件头）。**若照旧注释启动 = 本行 LR 只有全表的 1/10 ⇒ 与 S1 差 10 倍**，
+#     那不是'差一个模块'，是协议不一致（与 _freeze_for_ablation 同类）。
+#   ⚠️ 注释只是意图，**判决在 run 目录的 `.hydra/config.yaml` 里 base_lr 的值**。
+# 起跑核对：机3 应有 `[CausalGrowth] ... enabled`；机4 不应有；机6 应有
+AB-M6-HET-GROWTH-CAUSAL-ACGO:
+  class: PointGroup3heads_Hetero.PointGroup3heads_Hetero
+  conv_type: "SPARSE"
+  scorer_type: "unet"
+
+  use_score_net: True
+  mask_supervise: False
+  use_mask_filter_score_feature: False
+  use_mask_filter_score_feature_start_epoch: 50
+  mask_filter_score_feature_thre: 0.5
+
+  cal_iou_based_on_mask: False
+  cal_iou_based_on_mask_start_epoch: 50
+
+  loss_weights:
+    semantic: 1
+    offset_norm_loss: 0.1
+    offset_dir_loss: 0.1
+    score_loss: 1
+    mask_loss: 1
+    embedding_loss: 1
+
+  bandwidth: 0.6
+  embed_dim: 5
+  feat_size: 16
+  backbone:
+    architecture: "unet"
+    config:
+      class: minkowski.Minkowski_Model
+      conv_type: "SPARSE"
+      define_constants:
+        in_feat: ${models.AB-M6-HET-GROWTH-CAUSAL-ACGO.feat_size}
+        FEAT: 4
+      down_conv:
+        module_name: ResNetDown
+        dimension: 3
+        down_conv_nn:
+          [
+            [ 4, in_feat ],
+            [ in_feat, 2*in_feat ],
+            [ 2*in_feat, 3*in_feat ],
+            [ 3*in_feat, 4*in_feat ],
+            [ 4*in_feat, 5*in_feat ],
+            [ 5*in_feat, 6*in_feat ],
+            [ 6*in_feat, 7*in_feat ],
+          ]
+        kernel_size: 3
+        stride: [ 1, 2, 2, 2, 2, 2, 2 ]
+        N: 2
+      up_conv:
+        module_name: ResNetUp
+        dimension: 3
+        up_conv_nn:
+          [
+            [ 7*in_feat, 6*in_feat ],
+            [ 2*6*in_feat, 5*in_feat ],
+            [ 2*5*in_feat, 4*in_feat ],
+            [ 2*4*in_feat, 3*in_feat ],
+            [ 2*3*in_feat, 2*in_feat ],
+            [ 2*2*in_feat, in_feat ],
+            [ 2*in_feat, in_feat ],
+          ]
+        kernel_size: 3
+        stride: [ 2, 2, 2, 2, 2, 2, 1 ]
+        N: 2
+
+  scorer_unet:
+    class: minkowski.Minkowski_Model
+    conv_type: "SPARSE"
+    define_constants:
+      in_feat: ${models.AB-M6-HET-GROWTH-CAUSAL-ACGO.feat_size}
+    down_conv:
+      module_name: ResNetDown
+      dimension: 3
+      down_conv_nn: [ [ in_feat, 2*in_feat ], [ 2*in_feat, 4*in_feat ] ]
+      kernel_size: 3
+      stride: 2
+      N: 2
+    up_conv:
+      module_name: ResNetUp
+      dimension: 3
+      up_conv_nn: [ [ 4*in_feat, 2*in_feat ], [ 4*in_feat, in_feat ] ]
+      kernel_size: 3
+      stride: 2
+      N: 2
+  scorer_encoder:
+    class: minkowski.Minkowski_Model
+    conv_type: "SPARSE"
+    define_constants:
+      in_feat: ${models.AB-M6-HET-GROWTH-CAUSAL-ACGO.feat_size}
+    down_conv:
+      module_name: ResNetDown
+      dimension: 3
+      down_conv_nn: [ [ in_feat, 2*in_feat ], [ 2*in_feat, 4*in_feat ] ]
+      kernel_size: 3
+      stride: 2
+      N: 2
+    innermost:
+      module_name: GlobalBaseModule
+      activation:
+        name: LeakyReLU
+        negative_slope: 0.2
+      aggr: "max"
+      nn: [ 4*in_feat, in_feat ]
+
+  prepare_epoch: 30
+  cluster_radius_search: 1.5 * ${data.grid_size}
+
+  min_iou_threshold: 0.25
+  max_iou_threshold: 0.75
+
+  cluster_type: 5
+  vizual_ratio: 0
+
+  # --- Hetero GNN specific ---
+  freeze_backbone: True
+  use_hetero: True     # ★ A=1：六视角异构分支开启（默认值本来就是 True，这里显式写出，
+                       #   好让 8 行每一格的 A 开关都能直接 grep 到 / 肉眼核对）
+  # ---- 消融协议：与 S1（表里的「A 单独」那一行）**实测**口径一致 ----
+  # ★ 2026-09-24 实证纠正（原注释"S1 把 scorer / msg 都冻结"是错的，照它配会让本行作废）：
+  #   S1 的 train.log 里**没有** `[Freeze]` 行（grep -c Freeze = 0），且
+  #   `Model size = 23442811`（= 全模型）——Backbone 只靠 forward 里的 no_grad 屏蔽，
+  #   权重仍是 requires_grad=True ⇒ **S1 的真实协议 = 除 Backbone 外全部可训**，
+  #   它从不调用 _freeze_for_ablation()。
+  #   而本 config 的 use_growth_feature / use_causal_growth 恰好**触发**它
+  #   （PointGroup3heads_Hetero.py:450），可训集被收窄成「proj_gnn_to_fusion + fusion_mlp +
+  #   backbone_proj + scorer_fusion_proj + Offset + Embed + growth_proj +
+  #   causal_growth_attn」≈ 1.1e5 参数 ⇒ 整条 2D 分支（resnet18 / proj_2d / msg_* / gru_*）
+  #   被**冻结在随机初值**上（S0 的 checkpoint 是纯 3D PointGroup3heads，这些键一个都拷不过来），
+  #   而 S1 的同一条分支是从随机初值**训出来的** ⇒ 两行不可比，且本行大概率严重偏低。
+  #   ⇒ 显式 `freeze_pretrained: False` 让 :450 的条件短路，与 S1 逐位同协议。
+  #   起跑核对：日志**不应出现** `[Freeze]`，`Model size` 应 ≈ 23524924
+  #   （= S1 的 23442811 + growth_proj 64 + causal_growth_attn 82049）。出现 `[Freeze]` = 没生效。
+  #   机4（A+C）只有 use_acgo ⇒ :450 本来就不触发 ⇒ 无需改动。
+  freeze_pretrained: False
+  unfreeze_scorer: False   # 惰性：freeze_pretrained=False 时不会走 _freeze_for_ablation
+  unfreeze_msg: False      # 同上
+  hetero_rounds: 2
+  superpoint_voxel: 0.4
+  proj_resolution: 224
+  pretrained_3d_checkpoint: "/root/autodl-tmp/PanopticSegForLargeScalePointCloud-main/outputs/s0_pure3d_gs03_150ep/s0_pure3d_gs03_150ep-PointGroup-PAPER-20260918_160510/PointGroup-PAPER.pt"
+
+  # --- 生长（方案 A：真实生长特征）---
+  use_growth_feature: True    # 注入地形归一化冠层高度 h=z-DTM（零初始化残差）
+
+  # --- 因果（方案 A：因果生长注意力）---
+  use_causal: False           # 关闭旧的去混淆
+  use_causal_growth: True     # ← 与 control 的唯一差别
+  causal_growth_num_heads: 4
+  causal_growth_tau: 1.0
+  causal_growth_hard_gumbel: False   # 软稀疏（稳定）；硬采样留作后续
+  # ★ 2026-09-25 新增：log 域门控的下限（见 causal_growth_attention.py 的推导）。
+  #   必须 >0：log(0) = -inf 会让 score_shifted 的减 max 产生 NaN —— 那正是
+  #   当初绕开 log 域、改用 `score * A` 然后写错的根因。
+  #   抑制深度 = log((1+floor)/floor)：0.05 → 3.0 个自然对数。
+  causal_growth_edge_prob_floor: 0.05
+  # ★ 2026-09-26 定案：回到 0.0（**一致性决定，不是性能决定**）。
+  #   依据：λ_s=0.01 vs 0.0 的同轮次配对实测（机3 ep31-40 / 机5 ep31-46）：
+  #       机3  test 0.8601 vs 0.8641 = -0.0040 (p=0.096)
+  #       机5  test 0.8713 vs 0.8672 = +0.0041 (p=0.073)
+  #   ⇒ 边际、方向相反、都落在 run 间噪声(0.014)内 ⇒ **λ_s 不是杠杆**。
+  #   所以取 0.0 唯一理由是：**四条含 B 的行必须同源**，而 机1 那条到 ep82 的
+  #   长跑就是 0.0 跑的 ⇒ 选 0.0 可保住它，只重跑 机3/机5。
+  #   ⚠️ 曾经的 0.0 理由是"0.01 会把注意力压死"（旧代码的病）；那个病已修，
+  #      但修完之后 0.01 **也没有**带来可测收益 ⇒ 保持 0.0。
+  causal_sparse_weight: 0.0
+
+  # --- ACGO（S3：自适应梯度冲突引导协同优化）---
+  # 只改**多任务梯度如何合成**，不新增网络模块。cut point = backward()，
+  # base_model.py 完全不动。设计约束见 torch_points3d/models/panoptic/acgo.py 文件头。
+  use_acgo: True
+  acgo_start_epoch: 32          # 不用 31：prepare_epoch=30 使 score_loss 恰在 ep31 首次
+                                # 出现，与 ACGO 同轮开启会让"第 3 个任务登场"和
+                                # "ACGO 开启"混在一起，日志没法归因。
+  acgo_adaptive_weight: True    # ← S3-A / S3-B 的唯一差别
+  acgo_projection: True
+  acgo_ema_beta: 0.9
+  acgo_lambda: 1.0
+  acgo_eps: 1e-8
+  acgo_shared_prefixes: [proj_gnn_to_fusion., fusion_mlp., backbone_proj.,
+                         scorer_fusion_proj., growth_proj., causal_growth_attn.]
+
+  # ★ 2026-09-26 新增开关：只在 `cos(g_i,g_j) < 阈值` 时才做 PCGrad 投影。
+  #   0.0 = **原行为，逐位不变**（dot<0 ⟺ cos<0）。
+  #   动机：实测 mean_cos 接近 0 ⇒ 现在的 `dot<0` 会把**噪声级的负相关**也投影,
+  #   等于往合成梯度里注入扰动。设 −0.05 只处理真冲突。
+  #   ⚠️ 改它就是**换实验条件** ⇒ 该行旧数据不可与新数据混用。**当前保持 0.0**。
+  acgo_conflict_threshold: 0.0

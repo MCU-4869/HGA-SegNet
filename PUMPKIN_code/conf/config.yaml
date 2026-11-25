@@ -1,0 +1,51 @@
+defaults: # for loading the default.yaml config
+  - task: panoptic
+
+  - visualization: default
+  - lr_scheduler: exponential
+  # Default entry point = the paper's full model (HF-BU + HAG + ACGO, i.e. the
+  # "all three" arm) on PUMPKIN with the 150-epoch protocol.
+  # Ablations: models=panoptic/ab_m{0..5}_* ; data/training stay the same.
+  - training: treeins_ab_150
+  - debugging: default
+  - models: panoptic/ab_m6_het_growth_causal_acgo
+  - data: panoptic/treeins_rad8_gs03_final
+#  - hydra/job_logging: custom
+  - hydra/output: custom  # add the support for user-defined experiment folder (where to save the experiment files)
+
+
+job_name: pumpkin_hga_segnet  # prefix name for saving the experiment file.
+# model_name MUST equal the key under `models:` in the model config file --
+# the output folder name and the checkpoint filename both use it.
+model_name: AB-M6-HET-GROWTH-CAUSAL-ACGO
+update_lr_scheduler_on: "on_epoch" # ["on_epoch", "on_num_batch", "on_num_sample"]
+selection_stage: ""
+pretty_print: False
+eval_frequency: 1
+# BatchNorm behaviour during evaluation. torch-points3d defaults to putting every
+# BatchNorm back into TRAIN mode at eval time, so eval-time normalisation uses
+# per-batch statistics.
+#
+# *** DO NOT SET THIS TO False. IT IS LOAD-BEARING, NOT A BUG. ***
+# Setting it to False breaks the model outright: `ME.MinkowskiBatchNorm`'s running
+# statistics are unusable in this fork, so in eval mode the backbone normalises with
+# garbage. Measured on 2026-09-17 by flipping it to False on the S0 rerun:
+#     class 0 (non-tree) IoU fell to 1.01% while class 1 stayed at 68.78%
+# which is exactly the class-0 collapse symptom that this flag was introduced to
+# fix in the first place (see the class-0-collapse investigation: class 0 IoU went
+# from 0% to 68.68% at epoch 2, and to 98% by the end, once all BN -- including
+# MinkowskiBatchNorm -- was put back into train mode at eval).
+#
+# The counter-argument that this "leaks test data" does not hold here: because every
+# BN is in train mode during BOTH training and eval, the running statistics are
+# written but never read. Overwriting them with val/test data therefore has no
+# effect on anything -- there is nothing downstream that consumes them.
+# The real cost of this setting is different and must be declared in any write-up:
+# eval-time normalisation depends on batch composition, so logged val/test numbers
+# are noisier and are not comparable across runs that used different batch sizes.
+bn_train_mode_at_eval: True
+
+tracker_options: # Extra options for the tracker
+  full_res: False
+  make_submission: False
+  track_boxes: False
